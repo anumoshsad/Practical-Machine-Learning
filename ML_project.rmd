@@ -1,0 +1,110 @@
+---
+title: "Practical Machine Learning"
+author: "Shouman Das"
+date: "September 3, 2016"
+output: html_document
+---
+# Overview
+
+To monitor personal activities various kinds of devices are used now a days. This Human Activity Research(HAR) has recently become an important research are in the last few years with many potential applications like elderly monitoring, lige log systems for monitoring energy expenditure and supporting weight-loss programs etc. People generally monitor their activity by quantifying the amount of daily activities with devices like Fitbit, Jawbone Up, Nike FuelBand etc. But they rarely try to find how well they are doing weight lifting. In this project, we will try to make prediction model to determine how well one is doing an activity. More information about the dataset can be found at here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+# Data loading and Preprocessing
+We downloaded the training data from https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv to our working directory.
+```{r, cache=TRUE}
+setwd("~/Downloads/Data/Practical ML")
+HARdata <- read.csv("pml-training.csv", na.strings = c("NA", "#DIV/0!",""), header = TRUE)
+test <- read.csv("pml-testing.csv", na.strings = c("NA", "#DIV/0!",""), header = TRUE)
+```
+Now we will delete those columns everything is NA. Also the first few columns do not have any substatial relation with the performance of the subject. So we delete them.
+```{r}
+trainData <- HARdata[, colSums(is.na(HARdata))==0][,-c(1:7)]
+test <- test[, colSums(is.na(HARdata))==0][,-c(1:7)]
+```
+# Splitting in Training and Validation
+Now we load necessary packages and split the data in testing and training to make a prediction model.
+
+```{r, message=FALSE, cache = TRUE}
+require(caret)
+set.seed(62433)
+inTrain <- createDataPartition(y = trainData$classe, p = 0.7, list = FALSE)
+training <- trainData[inTrain,]
+validation <- trainData[-inTrain,]
+```
+
+# Prediction Models and Performances
+## Linear Discriminant Analysis
+First we use lda to make a model for multiclass classifier. After that we have a model to predict the outcome of "classe" variable. We will also calculate the accuracy and draw a heatmap of the predictions.
+```{r, message= FALSE, cache=TRUE}
+library(gplots)
+library(RColorBrewer)
+mod_lda <- train(classe~., data = training, method = "lda")
+pred_lda <- predict(mod_lda, validation)
+confusionMatrix(pred_lda, validation$classe)
+cm <- confusionMatrix(pred_lda, validation$classe)$table
+
+my_palette <- colorRampPalette(c("red", "yellow", "green"))(n = 299)
+heatmap.2(cm,
+           cellnote = cm,  # same data set for cell labels
+           main = "Heatmap of Confusion Matrix", # heat map title
+           notecol="black",      # change font color of cell labels to black
+           density.info="none",  # turns off density plot inside color legend
+           trace="none",         # turns off trace lines inside the heat map
+           margins =c(12,9),     # widens margins around plot
+           col=my_palette,       # use on color palette defined earlier
+               # enable color transition at specified limits
+           dendrogram="none",     # only draw a row dendrogram
+           Colv="NA", Rowv = "NA") 
+
+```
+
+Next we will made a random forest model and compute the confusion matrix. But to save time, we will do parallel processing as described in https://github.com/lgreski/datasciencectacontent/blob/master/markdown/pml-randomForestPerformance.md .
+```{r, message= FALSE, cache=TRUE}
+library(parallel)
+library(doParallel)
+
+cluster <- makeCluster(detectCores() - 1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
+
+fitControl <- trainControl(method = "cv",
+                           number = 5,
+                           allowParallel = TRUE)
+
+x <- training[,-53]
+y <- training[, 53]
+
+mod_rf <- train( x, y, data = training, method = "rf", trControl = fitControl)
+
+stopCluster(cluster)
+
+
+pred_rf <- predict(mod_rf, validation)
+confusionMatrix(pred_rf, validation$classe)
+cm <- confusionMatrix(pred_rf, validation$classe)$table
+
+my_palette <- colorRampPalette(c("red", "yellow", "green"))(n = 299)
+heatmap.2(cm,
+           cellnote = cm,  # same data set for cell labels
+           main = "Heatmap of Confusion Matrix", # heat map title
+           notecol="black",      # change font color of cell labels to black
+           density.info="none",  # turns off density plot inside color legend
+           trace="none",         # turns off trace lines inside the heat map
+           margins =c(12,9),     # widens margins around plot
+           col=my_palette,       # use on color palette defined earlier
+               # enable color transition at specified limits
+           dendrogram="none",     # only draw a row dendrogram
+           Colv="NA", Rowv = "NA") 
+
+dev.off()
+```
+# Model Selection
+So we can see that random forest model has a high accuracy. Using this model we will predict the classe variable for testing data.
+
+```{r, message= FALSE, cache= TRUE}
+pred_test <- predict(mod_rf, test[,1:52])
+pred_test
+
+```
+
+# Conclusion
+
+In this project, we used random forest classifier to make a multiclass prediction classifier. And used this model to predict the class of a testing data set.
